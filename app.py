@@ -1,26 +1,20 @@
 import os
 import random
-import re
-
 import requests
-from flask import Flask, render_template, request, redirect, jsonify, session
+from flask import Flask, render_template, request, jsonify, session
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "change-this")
+app.secret_key = os.getenv("SECRET_KEY", "default-secret-key")
 
-API_URL = os.getenv("API_URL")
+API_URL = os.getenv("API_URL", "https://sso-register-killersharmabot.vercel.app/send-email")
 
 def generate_captcha():
     a, b = random.randint(1, 20), random.randint(1, 20)
     return f"{a} + {b} = ?", a + b
 
-# হোম পেজে ঢুকলেই সরাসরি ড্যাশবোর্ডে পাঠিয়ে দেবে
 @app.route('/')
-def home():
-    return render_template('index.html')
-
 @app.route('/dashboard')
-def dashboard():
+def home():
     return render_template('index.html')
 
 @app.route('/get-captcha')
@@ -33,28 +27,34 @@ def get_captcha():
 def send_otp():
     data = request.get_json() or {}
     email = data.get('email', '').strip().lower()
-    captcha = str(data.get('captcha', '')).strip()
-    
-    if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
-        return jsonify({'status': 'error', 'message': 'Invalid email'}), 400
-    
-    if captcha != str(session.get('captcha_result', '')):
-        return jsonify({'status': 'error', 'message': 'Wrong captcha'}), 400
-    
-    session.pop('captcha_result', None)
-    
-    try:
-        r = requests.get(API_URL, params={'email': email}, timeout=10)
-        if r.status_code == 200 and r.json().get('status_code') == 200:
-            return jsonify({'status': 'success', 'message': 'OTP sent!'})
-        return jsonify({'status': 'error', 'message': 'API error'}), 500
-    except:
-        return jsonify({'status': 'error', 'message': 'Request failed'}), 500
+    captcha_user = str(data.get('captcha', '')).strip()
+    captcha_real = str(session.get('captcha_result', ''))
 
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect('/')
+    if not email or not captcha_user:
+        return jsonify({'status': 'error', 'message': 'সবগুলো ঘর পূরণ করুন!'})
+
+    if captcha_user != captcha_real:
+        return jsonify({'status': 'error', 'message': 'ক্যাপচা ভুল হয়েছে!'})
+
+    # API তে ইমেইল পাঠানোর রিকোয়েস্ট
+    try:
+        response = requests.post(API_URL, json={'email': email}, timeout=10)
+        # নতুন ক্যাপচা সেট করা
+        q, a = generate_captcha()
+        session['captcha_result'] = a
+
+        if response.status_code == 200:
+            return jsonify({
+                'status': 'success',
+                'message': 'কোডটি সফলভাবে পাঠানো হয়েছে! এই কোডটি দিয়ে আপনি আপনার অ্যাকাউন্ট রিকভারি বা অন্য কাজ করতে পারবেন।',
+                'new_question': q
+            })
+        else:
+            return jsonify({'status': 'error', 'message': 'API রিকোয়েস্ট ব্যর্থ হয়েছে।', 'new_question': q})
+    except Exception as e:
+        q, a = generate_captcha()
+        session['captcha_result'] = a
+        return jsonify({'status': 'error', 'message': 'সার্ভার কানেকশন এরর!', 'new_question': q})
 
 if __name__ == '__main__':
     app.run(debug=True)
