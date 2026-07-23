@@ -4,9 +4,11 @@ import requests
 from flask import Flask, render_template, request, jsonify, session
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "default-secret-key")
+# সেশনের নিরাপত্তার জন্য একটি সিক্রেট কি দেওয়া হলো
+app.secret_key = "my-custom-secret-key-change-this"
 
-API_URL = os.getenv("API_URL", "https://sso-register-killersharmabot.vercel.app/send-email")
+# আপনার API URL সরাসরি নিচে বসিয়ে দিন
+API_URL = "https://sso-register-killersharmabot.vercel.app/send-email"
 
 def generate_captcha():
     a, b = random.randint(1, 20), random.randint(1, 20)
@@ -36,10 +38,8 @@ def send_otp():
     if captcha_user != captcha_real:
         return jsonify({'status': 'error', 'message': 'ক্যাপচা ভুল হয়েছে!'})
 
-    # API তে ইমেইল পাঠানোর রিকোয়েস্ট
     try:
         response = requests.post(API_URL, json={'email': email}, timeout=10)
-        # নতুন ক্যাপচা সেট করা
         q, a = generate_captcha()
         session['captcha_result'] = a
 
