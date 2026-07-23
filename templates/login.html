@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Access</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: sans-serif; }
+        body {
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0f172a;
+            color: #fff;
+        }
+        .login-card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 30px;
+            border-radius: 16px;
+            width: 320px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        input {
+            width: 100%; padding: 12px; margin: 15px 0;
+            border-radius: 8px; border: 1px solid #475569;
+            background: #1e293b; color: #fff; outline: none;
+        }
+        button {
+            width: 100%; padding: 12px;
+            border-radius: 8px; border: none;
+            background: #3b82f6; color: #fff;
+            font-weight: bold; cursor: pointer;
+        }
+        .error { color: #ef4444; font-size: 14px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h3>Access Required</h3>
+        <p style="font-size: 12px; color: #94a3b8; margin-top: 5px;">Enter password to access the site</p>
+        
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <form method="POST">
+            <input type="password" name="password" placeholder="Enter Password" required>
+            <button type="submit">Enter Site</button>
+        </form>
+    </div>
+</body>
+</html>
+
