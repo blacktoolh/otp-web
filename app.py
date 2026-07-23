@@ -2,7 +2,6 @@ import os
 import random
 import requests
 from flask import Flask, render_template, request, redirect, jsonify, session
-from werkzeug.security import import_string
 from dotenv import load_dotenv
 
 # .env ফাইল লোড করা
@@ -57,3 +56,5 @@ def logout():
     session.clear()
     return redirect('/')
 
+if __name__ == '__main__':
+    app.run(debug=True)
