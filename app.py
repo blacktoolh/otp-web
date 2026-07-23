@@ -1,5 +1,4 @@
 import os
-import base64  # যোগ করুন
 import random
 import re
 from datetime import datetime
@@ -11,27 +10,15 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "change-this")
 
 API_URL = os.getenv("API_URL")
-ENCODED_PASS = os.getenv("ACCESS_PASSWORD")
+# সরাসরি প্লেইন টেক্সট পাসওয়ার্ড নেওয়া হচ্ছে
+ACCESS_PASSWORD = os.getenv("ACCESS_PASSWORD", "fdsacXDvgfc54<>")
 
-# Base64 ডিকোড
-try:
-    ACCESS_PASSWORD = base64.b64decode(ENCODED_PASS).decode()
-except:
-    ACCESS_PASSWORD = "default123"  # fallback
-
-request_log = {}
+# ভুল পাসওয়ার্ড ট্রাই ট্র্যাক করার জন্য
+failed_attempts = {}
 
 def generate_captcha():
     a, b = random.randint(1, 20), random.randint(1, 20)
     return f"{a} + {b} = ?", a + b
-
-def rate_limit(ip, limit=5):
-    now = datetime.now().timestamp()
-    request_log[ip] = [t for t in request_log.get(ip, []) if now - t < 300]
-    if len(request_log[ip]) >= limit:
-        return False
-    request_log[ip].append(now)
-    return True
 
 @app.route('/')
 def home():
@@ -41,15 +28,28 @@ def home():
 
 @app.route('/', methods=['POST'])
 def login():
-    if not rate_limit(request.remote_addr):
-        return render_template('login.html', error="Too many attempts!"), 429
+    ip = request.remote_addr
+    attempts = failed_attempts.get(ip, 0)
     
-    # Base64 ডিকোড করা পাসওয়ার্ডের সাথে তুলনা
-    if request.form.get('password') == ACCESS_PASSWORD:
+    # ৩ বারের বেশি চেষ্টা করলে ব্লক
+    if attempts >= 3:
+        return render_template('login.html', error="Maximum 3 attempts reached! You are blocked."), 429
+    
+    user_password = request.form.get('password')
+    
+    # সাধারণ টেক্সট ম্যাচিং
+    if user_password == ACCESS_PASSWORD:
         session['authenticated'] = True
+        failed_attempts[ip] = 0  # সফল হলে কাউন্টার রিসেট
         return redirect('/dashboard')
-    
-    return render_template('login.html', error="Wrong password!"), 401
+    else:
+        failed_attempts[ip] = attempts + 1
+        remaining = 3 - failed_attempts[ip]
+        if remaining > 0:
+            error_msg = f"Wrong password! Remaining attempts: {remaining}"
+        else:
+            error_msg = "Maximum 3 attempts reached! You are blocked."
+        return render_template('login.html', error=error_msg), 401
 
 @app.route('/dashboard')
 def dashboard():
