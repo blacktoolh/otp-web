@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Account Recovery Portal</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
         body, html { height: 100%; overflow: hidden; }
 
         .video-bg {
@@ -13,154 +13,112 @@
             width: 100%; height: 100%;
             object-fit: cover; z-index: -2;
         }
+        
         .overlay {
             position: fixed; top: 0; left: 0;
             width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.5); z-index: -1;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(88, 28, 135, 0.8) 100%);
+            z-index: -1;
         }
+        
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: all 0.3s;
+            z-index: 10;
+        }
+        
+        .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        
         .container {
             display: flex; justify-content: center; align-items: center;
-            height: 100vh;
+            height: 100vh; padding: 20px;
         }
+        
         .card {
-            background: rgba(255, 255, 255, 0.12);
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            border-radius: 20px;
-            padding: 35px 30px; width: 360px;
-            color: #fff; text-align: center;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 24px;
+            padding: 40px; 
+            width: 100%;
+            max-width: 420px;
+            color: #fff; 
+            text-align: center;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            animation: fadeInUp 0.6s ease-out;
         }
-        .card h2 { font-size: 22px; margin-bottom: 20px; }
-        .input-group { margin-bottom: 15px; text-align: left; }
-        .input-group label { display: block; font-size: 12px; margin-bottom: 5px; color: #ddd; }
-        .input-group input {
-            width: 100%; padding: 12px; border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            background: rgba(0, 0, 0, 0.2); color: #fff; outline: none;
+        
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        .captcha-box {
-            display: flex; gap: 10px; align-items: center;
-        }
-        .captcha-label {
-            font-weight: bold; background: rgba(255, 255, 255, 0.2);
-            padding: 10px; border-radius: 8px; font-size: 14px; white-space: nowrap;
-        }
-        .btn {
-            width: 100%; padding: 12px; border: none; border-radius: 10px;
+        
+        .card h2 { 
+            font-size: 26px; 
+            margin-bottom: 10px;
             background: linear-gradient(135deg, #00d2ff, #3a7bd5);
-            color: #fff; font-weight: bold; cursor: pointer; margin-top: 10px;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-        #status { margin-top: 15px; font-size: 13px; }
-        .hidden { display: none; }
-    </style>
-</head>
-<body>
-
-    <video class="video-bg" autoplay loop muted playsinline>
-        <source src="{{ url_for('static', filename='video.mp4') }}" type="video/mp4">
-    </video>
-    <div class="overlay"></div>
-
-    <div class="container">
-        <div class="card">
-            <h2>Account Recovery</h2>
-            
-            <div id="email-step">
-                <div class="input-group">
-                    <label>Gmail Address</label>
-                    <input type="email" id="email" placeholder="example@gmail.com" required>
-                </div>
-
-                <div class="input-group">
-                    <label>Human Verification</label>
-                    <div class="captcha-box">
-                        <span id="captcha-question" class="captcha-label">Loading...</span>
-                        <input type="text" id="captcha-answer" placeholder="Answer" required>
-                    </div>
-                </div>
-
-                <button class="btn" onclick="sendOTP()">Send OTP</button>
-            </div>
-
-            <div id="otp-step" class="hidden">
-                <div class="input-group">
-                    <label>Enter OTP Code</label>
-                    <input type="text" id="otp" placeholder="123456">
-                </div>
-                <button class="btn" onclick="verifyOTP()">Verify OTP</button>
-            </div>
-
-            <div id="status"></div>
-        </div>
-    </div>
-
-    <script>
-        async function loadCaptcha() {
-            try {
-                const res = await fetch('/get-captcha');
-                const data = await res.json();
-                if(data.status === 'success') {
-                    document.getElementById('captcha-question').innerText = data.question;
-                }
-            } catch (e) {
-                document.getElementById('captcha-question').innerText = "Error";
-            }
+        
+        .subtitle {
+            color: rgba(255,255,255,0.6);
+            font-size: 14px;
+            margin-bottom: 30px;
         }
-
-        async function sendOTP() {
-            const email = document.getElementById('email').value.trim();
-            const captcha = document.getElementById('captcha-answer').value.trim();
-            const status = document.getElementById('status');
-
-            if(!email || !captcha) {
-                status.innerText = "Please fill in email and captcha!";
-                status.style.color = "#ff4d4d";
-                return;
-            }
-
-            status.innerText = "Sending request...";
-            status.style.color = "#fff";
-
-            try {
-                const res = await fetch('/send-otp', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({email: email, captcha: captcha})
-                });
-
-                const data = await res.json();
-                if(data.status === 'success') {
-                    status.innerText = data.message;
-                    status.style.color = "#00ff88";
-                    document.getElementById('email-step').classList.add('hidden');
-                    document.getElementById('otp-step').classList.remove('hidden');
-                } else {
-                    status.innerText = data.message;
-                    status.style.color = "#ff4d4d";
-                    loadCaptcha();
-                    document.getElementById('captcha-answer').value = '';
-                }
-            } catch (e) {
-                status.innerText = "Connection error!";
-                status.style.color = "#ff4d4d";
-            }
+        
+        .input-group { 
+            margin-bottom: 20px; 
+            text-align: left; 
         }
-
-        function verifyOTP() {
-            const otp = document.getElementById('otp').value.trim();
-            const status = document.getElementById('status');
-            if(otp) {
-                status.innerText = "OTP Verified: " + otp;
-                status.style.color = "#00ff88";
-            } else {
-                status.innerText = "Enter OTP first!";
-                status.style.color = "#ff4d4d";
-            }
+        
+        .input-group label { 
+            display: block; 
+            font-size: 13px; 
+            margin-bottom: 8px; 
+            color: rgba(255,255,255,0.8);
+            font-weight: 500;
         }
-
-        window.onload = loadCaptcha;
-    </script>
-</body>
-</html>
+        
+        .input-group input {
+            width: 100%; 
+            padding: 14px; 
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.2); 
+            color: #fff; 
+            outline: none;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+        
+        .input-group input:focus {
+            border-color: #00d2ff;
+            box-shadow: 0 0 0 3px rgba(0, 210, 255, 0.1);
+        }
+        
+        .input-group input::placeholder {
+            color: rgba(255,255,255,0.3);
+        }
+        
+        .captcha-box {
+            display: flex; 
+            gap: 12px; 
+            align-items: center;
+        }
+        
+        .captcha-label {
+            font-weight: bold; 
+            background: linear-gradient(135deg,
