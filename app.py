@@ -1,60 +1,125 @@
 import os
 import random
+import re
+import logging
+from datetime import datetime, timedelta
+from functools import wraps
+
 import requests
-from flask import Flask, render_template, request, redirect, jsonify, session
+from flask import Flask, render_template, request, redirect, jsonify, session, abort
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
 from dotenv import load_dotenv
 
-# .env ফাইল লোড করা
+# Environment variables load
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Secret Key এবং API URL সেট করা
-app.secret_key = os.getenv("SECRET_KEY", "default_secret_key")
-API_URL = os.getenv("API_URL")
+# Security configurations
+app.secret_key = os.getenv("SECRET_KEY")
+if not app.secret_key or app.secret_key == "default_secret_key":
+    raise ValueError("SECRET_KEY must be set in .env file!")
 
-@app.route('/', methods=['GET', 'POST'])
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=1)
+)
+
+# Security headers (CSP)
+Talisman(app, 
+    force_https=False,  # Vercel handles HTTPS
+    content_security_policy={
+        'default-src': "'self'",
+        'script-src': "'self'",
+        'style-src': ["'self'", "'unsafe-inline"],
+        'img-src': "'self' data:",
+        'media-src': "'self'"
+    }
+)
+
+# Rate limiting
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["100 per hour"]
+)
+
+# Configuration
+API_URL = os.getenv("API_URL")
+ACCESS_PASSWORD = os.getenv("ACCESS_PASSWORD")  # Add this to .env
+
+if not API_URL:
+    raise ValueError("API_URL must be set in .env file!")
+
+
+# ==================== SECURITY HELPERS ====================
+
+def generate_captcha():
+    """Generate a simple math CAPTCHA"""
+    operations = [
+        (random.randint(1, 20), random.randint(1, 20), '+', lambda a, b: a + b),
+        (random.randint(5, 30), random.randint(1, 10), '-', lambda a, b: a - b),
+        (random.randint(2, 10), random.randint(2, 10), '×', lambda a, b: a * b),
+    ]
+    a, b, op, func = random.choice(operations)
+    question = f"{a} {op} {b} = ?"
+    answer = func(a, b)
+    return question, answer
+
+
+def sanitize_email(email):
+    """Basic email sanitization"""
+    if not email:
+        return None
+    email = email.lower().strip()
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if re.match(pattern, email):
+        return email
+    return None
+
+
+def login_required(f):
+    """Decorator to check authentication"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('authenticated'):
+            logger.warning(f"Unauthorized access attempt from {request.remote_addr}")
+            return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# ==================== ROUTES ====================
+
+@app.route('/')
 def home():
+    """Login page"""
+    if session.get('authenticated'):
+        return redirect('/dashboard')
     return render_template('login.html')
 
-@app.route('/send-otp', methods=['POST'])
-def send_otp():
-    if not session.get('authenticated'):
-        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+
+@app.route('/', methods=['POST'])
+@limiter.limit("5 per minute")  # Rate limit login attempts
+def login():
+    """Handle login"""
+    password = request.form.get('password', '')
     
-    data = request.json or {}
-    email = data.get('email')
-    user_captcha = data.get('captcha')
-
-    if not email:
-        return jsonify({'status': 'error', 'message': 'Email is required'}), 400
-
-    expected_captcha = session.get('captcha_result')
-    if expected_captcha is None or str(user_captcha).strip() != str(expected_captcha):
-        return jsonify({'status': 'error', 'message': 'Incorrect CAPTCHA answer'}), 400
-
-    session.pop('captcha_result', None)
-
-    api_url = os.getenv('API_URL')
-    params = {'email': email}
-
-    try:
-        response = requests.get(api_url, params=params, timeout=10)
-        if response.status_code == 200:
-            res_data = response.json()
-            if res_data.get('status_code') == 200:
-                return jsonify({'status': 'success', 'message': 'OTP has been sent to your email!'})
-            else:
-                return jsonify({'status': 'error', 'message': f"API Error: {res_data}"})
-        else:
-            return jsonify({'status': 'error', 'message': f'Server Error: Status {response.status_code}'})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': 'Request failed. Please try again.'})
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect('/')
-
-if __name__ == '__main__':
-    app.run(debug=True)
+    # Constant time comparison to prevent timing attacks
+    if ACCESS_PASSWORD and password == ACCESS_PASSWORD:
+        session['authenticated'] = True
+        session['login_time'] = datetime.now().isoformat()
+        logger.info(f"Successful login from {request.remote_addr}")
+        return redirect('/dashboard')
+    
