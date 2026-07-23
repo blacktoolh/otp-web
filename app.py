@@ -1,56 +1,30 @@
 import os
 import random
 import re
-import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import requests
 from flask import Flask, render_template, request, redirect, jsonify, session
+from werkzeug.security import check_password_hash
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "change-this")
 
-# Secret key from environment
-app.secret_key = os.getenv("SECRET_KEY", "fallback-secret-key-change-in-production")
-app.config['SESSION_TYPE'] = 'filesystem'
-
-# Configuration
-API_URL = os.getenv("API_URL", "https://sso-register-killersharmabot.vercel.app/send-email")
-ACCESS_PASSWORD = os.getenv("ACCESS_PASSWORD", "admin123")
-
-# In-memory storage for rate limiting (use Redis in production)
-request_counts = {}
+# Config
+API_URL = os.getenv("API_URL")
+ACCESS_HASH = os.getenv("ACCESS_PASSWORD")  # এখানে হ্যাশ থাকবে
+request_log = {}
 
 def generate_captcha():
-    """Generate math CAPTCHA"""
-    ops = [
-        (random.randint(1, 20), random.randint(1, 20), '+'),
-        (random.randint(5, 30), random.randint(1, 10), '-'),
-        (random.randint(2, 10), random.randint(2, 10), '×'),
-    ]
-    a, b, op = random.choice(ops)
-    if op == '+':
-        ans = a + b
-    elif op == '-':
-        ans = a - b
-    else:
-        ans = a * b
-    return f"{a} {op} {b} = ?", ans
+    a, b = random.randint(1, 20), random.randint(1, 20)
+    return f"{a} + {b} = ?", a + b
 
-def check_rate_limit(ip, action, limit=5, window=300):
-    """Simple rate limiting"""
-    key = f"{ip}:{action}"
+def rate_limit(ip, limit=5):
     now = datetime.now().timestamp()
-    
-    if key not in request_counts:
-        request_counts[key] = []
-    
-    # Remove old entries
-    request_counts[key] = [t for t in request_counts[key] if now - t < window]
-    
-    if len(request_counts[key]) >= limit:
+    request_log[ip] = [t for t in request_log.get(ip, []) if now - t < 300]
+    if len(request_log[ip]) >= limit:
         return False
-    
-    request_counts[key].append(now)
+    request_log[ip].append(now)
     return True
 
 @app.route('/')
@@ -61,17 +35,13 @@ def home():
 
 @app.route('/', methods=['POST'])
 def login():
-    password = request.form.get('password', '')
-    ip = request.remote_addr
+    if not rate_limit(request.remote_addr):
+        return render_template('login.html', error="Too many attempts!"), 429
     
-    if not check_rate_limit(ip, 'login'):
-        return render_template('login.html', error="Too many attempts. Try again later."), 429
-    
-    if password == ACCESS_PASSWORD:
+    if check_password_hash(ACCESS_HASH, request.form.get('password', '')):
         session['authenticated'] = True
         return redirect('/dashboard')
-    
-    return render_template('login.html', error="Invalid password."), 401
+    return render_template('login.html', error="Wrong password!"), 401
 
 @app.route('/dashboard')
 def dashboard():
@@ -83,58 +53,39 @@ def dashboard():
 def get_captcha():
     if not session.get('authenticated'):
         return jsonify({'status': 'error'}), 401
-    
-    question, answer = generate_captcha()
-    session['captcha_result'] = answer
-    session['captcha_time'] = datetime.now().isoformat()
-    
-    return jsonify({'status': 'success', 'question': question})
+    q, a = generate_captcha()
+    session['captcha_result'] = a
+    return jsonify({'status': 'success', 'question': q})
 
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
     if not session.get('authenticated'):
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     
-    ip = request.remote_addr
-    if not check_rate_limit(ip, 'otp', limit=3):
-        return jsonify({'status': 'error', 'message': 'Too many requests'}), 429
-    
     data = request.get_json() or {}
-    email = data.get('email', '').lower().strip()
-    user_captcha = str(data.get('captcha', '')).strip()
+    email = data.get('email', '').strip().lower()
+    captcha = str(data.get('captcha', '')).strip()
     
-    # Email validation
     if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
-        return jsonify({'status': 'error', 'message': 'Invalid email format'}), 400
+        return jsonify({'status': 'error', 'message': 'Invalid email'}), 400
     
-    # CAPTCHA check
-    expected = session.get('captcha_result')
-    if not expected or user_captcha != str(expected):
-        return jsonify({'status': 'error', 'message': 'Incorrect CAPTCHA'}), 400
+    if captcha != str(session.get('captcha_result', '')):
+        return jsonify({'status': 'error', 'message': 'Wrong captcha'}), 400
     
     session.pop('captcha_result', None)
     
-    # Call API
     try:
-        resp = requests.get(API_URL, params={'email': email}, timeout=10)
-        data = resp.json()
-        
-        if resp.status_code == 200 and data.get('status_code') == 200:
+        r = requests.get(API_URL, params={'email': email}, timeout=10)
+        if r.status_code == 200 and r.json().get('status_code') == 200:
             return jsonify({'status': 'success', 'message': 'OTP sent!'})
-        return jsonify({'status': 'error', 'message': 'Failed to send OTP'}), 500
-        
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': 'Service error'}), 500
+        return jsonify({'status': 'error', 'message': 'API error'}), 500
+    except:
+        return jsonify({'status': 'error', 'message': 'Request failed'}), 500
 
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect('/')
-
-# Vercel handler
-def handler(event, context):
-    from flask import Flask
-    return app(event, context)
 
 if __name__ == '__main__':
     app.run(debug=True)
