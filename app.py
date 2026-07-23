@@ -1,18 +1,24 @@
 import os
+import base64  # যোগ করুন
 import random
 import re
 from datetime import datetime
 
 import requests
 from flask import Flask, render_template, request, redirect, jsonify, session
-from werkzeug.security import check_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "change-this")
 
-# Config
 API_URL = os.getenv("API_URL")
-ACCESS_HASH = os.getenv("ACCESS_PASSWORD")  # এখানে হ্যাশ থাকবে
+ENCODED_PASS = os.getenv("ACCESS_PASSWORD")
+
+# Base64 ডিকোড
+try:
+    ACCESS_PASSWORD = base64.b64decode(ENCODED_PASS).decode()
+except:
+    ACCESS_PASSWORD = "default123"  # fallback
+
 request_log = {}
 
 def generate_captcha():
@@ -38,9 +44,11 @@ def login():
     if not rate_limit(request.remote_addr):
         return render_template('login.html', error="Too many attempts!"), 429
     
-    if check_password_hash(ACCESS_HASH, request.form.get('password', '')):
+    # Base64 ডিকোড করা পাসওয়ার্ডের সাথে তুলনা
+    if request.form.get('password') == ACCESS_PASSWORD:
         session['authenticated'] = True
         return redirect('/dashboard')
+    
     return render_template('login.html', error="Wrong password!"), 401
 
 @app.route('/dashboard')
